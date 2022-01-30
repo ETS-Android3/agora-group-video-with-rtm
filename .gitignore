@@ -1,6 +1,5 @@
 include
 agora-rtc-sdk.jar
-*.so
 .settings
 
 # built application files
