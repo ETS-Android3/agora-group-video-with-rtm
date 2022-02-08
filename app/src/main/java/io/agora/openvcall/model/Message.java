@@ -5,6 +5,8 @@ public class Message {
 
     private String mContent;
 
+    private byte[] bytes;
+
     private int mType;
 
     public Message(int type, User sender, String content) {
@@ -17,8 +19,18 @@ public class Message {
         this(0, sender, content);
     }
 
+    public Message(User sender, byte[] bytes) {
+        this.bytes = bytes;
+        this.mType = 1;
+        this.mSender = sender;
+    }
+
     public User getSender() {
         return mSender;
+    }
+
+    public byte[] getBytes() {
+        return bytes;
     }
 
     public String getContent() {

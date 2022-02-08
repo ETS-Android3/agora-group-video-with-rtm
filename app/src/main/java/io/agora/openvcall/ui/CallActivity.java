@@ -1,10 +1,14 @@
 package io.agora.openvcall.ui;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.media.AudioManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,14 +32,28 @@ import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
 
 import io.agora.openvcall.BuildConfig;
 import io.agora.openvcall.R;
@@ -57,6 +75,7 @@ import io.agora.propeller.ui.RtlLinearLayoutManager;
 import io.agora.rtc.Constants;
 import io.agora.rtc.IRtcEngineEventHandler;
 import io.agora.rtc.RtcEngine;
+import io.agora.rtc.live.LiveTranscoding;
 import io.agora.rtc.video.VideoCanvas;
 import io.agora.rtc.video.VideoEncoderConfiguration;
 import io.agora.rtm.ErrorInfo;
@@ -72,6 +91,7 @@ import io.agora.rtm.RtmImageMessage;
 import io.agora.rtm.RtmMediaOperationProgress;
 import io.agora.rtm.RtmMessage;
 import io.agora.rtm.RtmMessageType;
+import io.agora.rtm.RtmRequestId;
 import io.agora.rtm.RtmStatusCode;
 
 public class CallActivity extends BaseActivity implements DuringCallEventHandler {
@@ -119,8 +139,43 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
             ab.setDisplayOptions(ActionBar.DISPLAY_SHOW_CUSTOM);
             ab.setCustomView(R.layout.ard_agora_actionbar_with_title);
         }
-
         initRtmClient();
+    }
+
+    public LiveTranscoding getLiveTranscoding(){
+        LiveTranscoding liveTranscoding = new LiveTranscoding();
+        liveTranscoding.audioChannels = mUidsList.size();
+        liveTranscoding.userCount = mUidsList.size();
+        List<Integer> uids = new ArrayList<>(mUidsList.keySet());
+        int width = 360;
+        int height = 640;
+        int heightPerUser = height/ uids.size();
+        for (int i = 0; i < uids.size(); i++) {
+            int uid = uids.get(i);
+            LiveTranscoding.TranscodingUser user = new LiveTranscoding.TranscodingUser();
+            user.uid = uid;
+            user.x = 0;
+            user.y = heightPerUser * i;
+            user.audioChannel = 0;
+            user.width = width;
+            user.height = heightPerUser;
+            liveTranscoding.addUser(user);
+        }
+        return liveTranscoding;
+    }
+
+    public static Integer pickImageResult = 122;
+
+
+
+    public void onImageButtonClick(View view){
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType("image/*");
+        this.startActivityForResult(intent,pickImageResult);
+    }
+
+    public void onPushButtonClick(View view){
+        addStream();
     }
 
     public void onSendButtonClick(View view){
@@ -207,18 +262,28 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
         }
 
         mUserId = getIntent().getStringExtra(ConstantApp.INTENT_EXTRA_USER_ID);
-        mRtmClient.login(null, mUserId, new ResultCallback<Void>() {
-            @Override
-            public void onSuccess(Void responseInfo) {
-                Log.i(TAG, "login success");
-                createAndJoinChannel();
-            }
+        RequestQueue queue = Volley.newRequestQueue(this);
 
-            @Override
-            public void onFailure(ErrorInfo errorInfo) {
-                Log.i(TAG, "login failed: " + errorInfo);
-            }
+        // Request a string response from the provided URL.
+        StringRequest stringRequest = new StringRequest(Request.Method.GET, BuildConfig.SERVER_URL+"/agora/tempTokens?uid="+mUserId,
+                response -> {
+                    // Display the first 500 characters of the response string.
+                    mRtmClient.login(response, mUserId, new ResultCallback<Void>() {
+                        @Override
+                        public void onSuccess(Void responseInfo) {
+                            Log.i(TAG, "login success");
+                            createAndJoinChannel();
+                        }
+
+                        @Override
+                        public void onFailure(ErrorInfo errorInfo) {
+                            Log.i(TAG, "login failed: " + errorInfo);
+                        }
+                    });
+                }, error -> {
+            Toast.makeText(applicationContext, "Failed to get token: " + error, Toast.LENGTH_LONG).show();
         });
+        queue.add(stringRequest);
     }
 
     @Override
@@ -280,7 +345,11 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
                 if (message.getMessageType()==RtmMessageType.TEXT){
                     String account = fromMember.getUserId();
                     Log.i(TAG, "onMessageReceived account = " + account + " msg = " + message);
-                    notifyMessageChanged(new Message(new User(0, null), account +": " + message.getText()));
+                    notifyMessageChanged(new Message(new User(0, account), message.getText()));
+                }else if (message.getMessageType()==RtmMessageType.IMAGE){
+                    String account = fromMember.getUserId();
+                    byte[] thumbnail = ((RtmImageMessage) message).getThumbnail();
+                    notifyMessageChanged(new Message(new User(0, account), thumbnail));
                 }
             });
         }
@@ -289,7 +358,8 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
         public void onImageMessageReceived(final RtmImageMessage rtmImageMessage, final RtmChannelMember rtmChannelMember) {
             runOnUiThread(() -> {
                 String account = rtmChannelMember.getUserId();
-                Log.i(TAG, "onMessageReceived account = " + account + " msg = " + rtmImageMessage);
+                byte[] thumbnail = ((RtmImageMessage) rtmImageMessage).getThumbnail();
+                notifyMessageChanged(new Message(new User(0, account), thumbnail));
             });
         }
 
@@ -375,15 +445,15 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
         surfaceV.setZOrderOnTop(false);
         surfaceV.setZOrderMediaOverlay(false);
 
-        mUidsList.put(0, surfaceV); // get first surface view
+        int mUid = new Random().nextInt() * 10000;
+        mUidsList.put(mUid, surfaceV); // get first surface view
 
         mGridVideoViewContainer.initViewContainer(this, 0, mUidsList, mIsLandscape); // first is now full view
 
         initMessageList();
 //        notifyMessageChanged(new Message(new User(0, null), "start join " + channelName + " as " + (config().mUid & 0xFFFFFFFFL)));
-
+        config().mUid = mUid;
         joinChannel(channelName, config().mUid);
-
         optional();
     }
 
@@ -511,6 +581,63 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
         if (requestCode == CALL_OPTIONS_REQUEST) {
             RecyclerView msgListView = (RecyclerView) findViewById(R.id.msg_list);
             msgListView.setVisibility(Constant.DEBUG_INFO_ENABLED ? View.VISIBLE : View.INVISIBLE);
+        }else if (requestCode == pickImageResult && resultCode == RESULT_OK){
+            RtmRequestId requestId = new RtmRequestId();
+            Uri uri = data.getData();
+            if (uri!=null){
+                try {
+
+                    ContentResolver contentResolver = getApplicationContext().getContentResolver();
+                    InputStream inputStream = contentResolver.openInputStream(uri);
+                    ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+
+                    // this is storage overwritten on each iteration with bytes
+                    int bufferSize = 1024;
+                    byte[] buffer = new byte[bufferSize];
+
+                    // we need to know how may bytes were read to write them to the
+                    // byteBuffer
+                    int len = 0;
+                    while (true) {
+                        assert inputStream != null;
+                        if (!((len = inputStream.read(buffer)) != -1)) break;
+                        byteBuffer.write(buffer, 0, len);
+                    }
+                    byte[] bytes = byteBuffer.toByteArray();
+                    mRtmClient.createImageMessageByUploading(uri.toString(), requestId, new ResultCallback<RtmImageMessage>() {
+                        @Override
+                        public void onSuccess(RtmImageMessage rtmImageMessage) {
+                            mRtmChannel.sendMessage(rtmImageMessage, new ResultCallback<Void>() {
+                                @Override
+                                public void onSuccess(Void unused) {
+                                    runOnUiThread(()->{
+                                        notifyMessageChanged(new Message(new User(0, mUserId), bytes));
+                                    });
+                                }
+
+                                @Override
+                                public void onFailure(ErrorInfo errorInfo) {
+                                    log.info("Send image message failed:{}",errorInfo);
+                                    runOnUiThread(()->{
+                                        Toast.makeText(getApplicationContext(),"Send image message failed" +errorInfo.getErrorDescription(),Toast.LENGTH_LONG ).show();
+                                    });
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onFailure(ErrorInfo errorInfo) {
+
+                        }
+                    });
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+
         }
     }
 
@@ -628,7 +755,9 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
     }
 
     private void doLeaveChannel() {
-        mRtmChannel.release();
+        if (mRtmChannel!=null){
+            mRtmChannel.release();
+        }
         mRtmClient.release();
         leaveChannel(config().mChannel);
         preview(false, null, 0);
@@ -738,8 +867,8 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
     public void onUserJoined(int uid) {
         log.debug("onUserJoined " + (uid & 0xFFFFFFFFL));
         doRenderRemoteUi(uid);
-
         runOnUiThread(() -> {
+            rtcEngine().setLiveTranscoding(getLiveTranscoding());
 //                notifyMessageChanged(new Message(new User(0, null), "user " + (uid & 0xFFFFFFFFL) + " joined"));
         });
     }
@@ -797,13 +926,22 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
 
     @Override
     public void onJoinChannelSuccess(String channel, final int uid, int elapsed) {
-        log.debug("onJoinChannelSuccess " + channel + " " + (uid & 0xFFFFFFFFL) + " " + elapsed);
+        addStream();
+    }
+
+    public void addStream(){
+        RtcEngine rtcEngine = rtcEngine();
+        rtcEngine.setLiveTranscoding(getLiveTranscoding());
+        rtcEngine.addPublishStreamUrl("rtmp://watch.lacak.io:1935/static/livevoc",/*String.format("rtmp://nimble.voc.dev:1935/voc/%s", channel),*/true);
     }
 
     @Override
     public void onUserOffline(int uid, int reason) {
         log.debug("onUserOffline " + (uid & 0xFFFFFFFFL) + " " + reason);
         doRemoveRemoteUi(uid);
+        runOnUiThread(()->{
+            rtcEngine().setLiveTranscoding(getLiveTranscoding());
+        });
     }
 
     @Override

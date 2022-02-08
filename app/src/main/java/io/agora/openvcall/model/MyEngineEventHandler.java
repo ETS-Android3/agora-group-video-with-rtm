@@ -1,5 +1,8 @@
 package io.agora.openvcall.model;
 
+import android.util.Log;
+import android.widget.Toast;
+
 import io.agora.rtc.IRtcEngineEventHandler;
 import io.agora.rtc.RtcEngine;
 
@@ -20,6 +23,16 @@ public class MyEngineEventHandler extends IRtcEngineEventHandler {
 
     public void removeEventHandler(AGEventHandler handler) {
         this.mEventHandlerList.remove(handler);
+    }
+
+    @Override
+    public void onRtmpStreamingEvent(String s, int i) {
+        Log.i(this.getClass().getSimpleName(),"onRtmpStreamingEvent " + i);
+    }
+
+    @Override
+    public void onRtmpStreamingStateChanged(String s, int i, int i1) {
+        Log.i(this.getClass().getSimpleName(),"onRtmpStreamingStateChanged " + i + "  " + i1);
     }
 
     /**

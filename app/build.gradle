@@ -1,12 +1,12 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 28
+    compileSdkVersion 31
 
     defaultConfig {
         applicationId "io.agora.openvcall"
-        minSdkVersion 16 // JELLY_BEAN
-        targetSdkVersion 28
+        minSdkVersion 19 // JELLY_BEAN
+        targetSdkVersion 31
         versionCode 18
         versionName "x.y.z"
 
@@ -38,6 +38,18 @@ android {
             jniLibs.srcDirs = ['src/main/jniLibs']
         }
     }
+
+    productFlavors {
+        flavorDimensions  "environment"
+        development {
+            dimension  "environment"
+            buildConfigField("String","SERVER_URL","\"http://rtcback.zhiyashengya.com\"")
+        }
+        production {
+            dimension  "environment"
+            buildConfigField("String","SERVER_URL","\"http://rtcback.zhiyashengya.com\"")
+        }
+    }
 }
 
 dependencies {
@@ -56,4 +68,6 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'], exclude: [])
     androidTestImplementation 'com.android.support.test:rules:1.0.2'
     androidTestImplementation 'com.jayway.android.robotium:robotium-solo:5.6.3'
+
+    implementation 'com.android.volley:volley:1.2.0'
 }
