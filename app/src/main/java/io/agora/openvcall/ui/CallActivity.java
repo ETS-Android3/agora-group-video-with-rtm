@@ -188,7 +188,7 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
                 @Override
                 public void onSuccess(Void unused) {
                     runOnUiThread(()->{
-                        notifyMessageChanged(new Message(new User(0, null), mUserId +": " + text));
+                        notifyMessageChanged(new Message(new User(0, mUserId),  text));
                         editText.setText("");
                     });
                 }
