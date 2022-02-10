@@ -12,10 +12,18 @@ import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Toast;
+
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
+
 import io.agora.openvcall.AGApplication;
+import io.agora.openvcall.BuildConfig;
 import io.agora.openvcall.R;
 import io.agora.openvcall.model.*;
 import io.agora.propeller.Constant;
@@ -23,6 +31,8 @@ import io.agora.rtc.RtcEngine;
 import io.agora.rtc.internal.EncryptionConfig;
 import io.agora.rtc.video.VideoCanvas;
 import io.agora.rtc.video.VideoEncoderConfiguration;
+import io.agora.rtm.ErrorInfo;
+import io.agora.rtm.ResultCallback;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -291,15 +301,24 @@ public abstract class BaseActivity extends AppCompatActivity {
      * @param uid User ID.
      */
     public final void joinChannel(final String channel, int uid) {
-        String accessToken = getApplicationContext().getString(R.string.agora_access_token);
-        if (TextUtils.equals(accessToken, "") || TextUtils.equals(accessToken, "<#YOUR ACCESS TOKEN#>")) {
-            accessToken = null; // default, no token
-        }
+        RequestQueue queue = Volley.newRequestQueue(this);
 
-        rtcEngine().joinChannel(accessToken, channel, "OpenVCall", uid);
-        config().mChannel = channel;
-        enablePreProcessor();
-        log.debug("joinChannel " + channel + " " + uid);
+        // Request a string response from the provided URL.
+        StringRequest stringRequest = new StringRequest(Request.Method.GET, BuildConfig.SERVER_URL+"/agora/tempTokens/rtc?channelName="+channel,
+                accessToken -> {
+                    if (TextUtils.equals(accessToken, "") || TextUtils.equals(accessToken, "<#YOUR ACCESS TOKEN#>")) {
+                        accessToken = null; // default, no token
+                    }
+
+                    rtcEngine().joinChannel(accessToken, channel, "OpenVCall", uid);
+                    config().mChannel = channel;
+                    enablePreProcessor();
+                    log.debug("joinChannel " + channel + " " + uid);
+                }, error -> {
+            Toast.makeText(getApplicationContext(), "Failed to get token: " + error, Toast.LENGTH_LONG).show();
+        });
+        queue.add(stringRequest);
+
     }
 
     /**

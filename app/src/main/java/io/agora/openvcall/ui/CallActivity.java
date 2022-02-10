@@ -932,7 +932,7 @@ public class CallActivity extends BaseActivity implements DuringCallEventHandler
     public void addStream(){
         RtcEngine rtcEngine = rtcEngine();
         rtcEngine.setLiveTranscoding(getLiveTranscoding());
-        rtcEngine.addPublishStreamUrl("rtmp://watch.lacak.io:1935/static/livevoc",/*String.format("rtmp://nimble.voc.dev:1935/voc/%s", channel),*/true);
+        rtcEngine.addPublishStreamUrl("rtmp://video.voc.dev:1935/static/livevoc",/*String.format("rtmp://nimble.voc.dev:1935/voc/%s", channel),*/true);
     }
 
     @Override
